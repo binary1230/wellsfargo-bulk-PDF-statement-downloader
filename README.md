@@ -25,9 +25,9 @@ If this was helpful to you, please buy me (@benedictchen) a beer on PayPal: **[C
 
 # Credits
 
-Original code: @binay1230
-Current/better code: @benedictchen
-Thanks also to: @trevorfox, @figadore, @burlesona
+- Original code: @binay1230
+- Current/better code: @benedictchen
+- Thanks also to: @trevorfox, @figadore, @burlesona
 
 # More
 
