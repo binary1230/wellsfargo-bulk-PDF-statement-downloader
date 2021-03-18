@@ -1,17 +1,19 @@
-# wellsfargo-bulk-PDF-statement-downloader
+# Unofficial Wells Fargo Bulk Statement Downloader
 Need to download lots of PDFs from Wells Fargo's online banking website? Right now, it's a huge pain. This script simplifies bulk downloading of statements.
 
 If you need PDF statements, or you need to download more than 18 months of transaction history, this script is for you.
 
+**WARNING**: The method used to download the script involves running our code in your browser. You should always ensure code you run like this is coming from a trusted source, and that you understand what it is doing. Use at your own risk!
+
 
 # HOW TO USE
 
-Open Google Chrome
+1. Open Google Chrome
 
-Make the bookmarks bar show up if not visible already:
+2. Make the bookmarks bar show up if not visible already:
 - `View` > `Always Show Bookmarks Bar` (or press Shift + Command + B on a Mac)
 
-- Right click on Bookmarks Bar, click "`Add Page`"
+3. Right click on Bookmarks Bar, click "`Add Page`"
 - For Name, type 'Wells Fargo Downloader'.  For 'URL', select everything in the box below and paste it in:
 
 ```
@@ -19,7 +21,7 @@ javascript:(function()%7B(function()%20%7B%0A%0Aif%20(window.location.hostname.t
 ```
 ---------
 
-- Click the new 'Wells Fargo Downloader' bookmark you just created, and you should be ready to go.
+4. Click the new 'Wells Fargo Downloader' bookmark you just created, and you should be ready to go.
 
 ---------
 
