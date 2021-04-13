@@ -15,7 +15,7 @@ window.oldXHROpen = window.XMLHttpRequest.prototype.open;
 
 let interceptor = function (method, url, async) {
     console.log('Intercepted request: ', {url});
-	if (url.indexOf('/edocs/documents/statement/list/account/') !== -1) {
+	if (url.indexOf('/edocs/documents/statement/list') !== -1) {
 		console.log('Listing page request found...');
 		this.addEventListener('load', function () {
             let str = this.responseText;
