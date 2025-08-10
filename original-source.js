@@ -24,14 +24,22 @@ let interceptor = function (method, url, async) {
             str = str.replace(/\\"/g, '"');
             let parsed = JSON.parse(str);
             let statements = parsed.statementsDisclosuresInfo.statements;
+
+            // Convert MM/DD/YY to YYYY-MM-DD
+            const DATE_RE = /(\d{2})\/(\d{2})\/(\d{2})/;
+            function toISODate(display) {
+              let [, mm, dd, yy] = DATE_RE.exec(display);
+              const yyyy = 2000 + parseInt(yy, 10);
+              return `${yyyy}-${mm}-${dd}`;
+            }
 			let waitTime = 0;
 			const button = document.createElement('button');
             button.textContent = "Download Statements";
-            button.style = "position:absolute; right: 30px; bottom: 30px; font-size:50px; background-color:green; color: white; border-radius: 5px; padding: 30px;"
+            button.style = "position:absolute; right: 30px; bottom: 30px; font-size:50px; background-color:green; color: white; border-radius: 5px; padding: 30px;";
             document.body.appendChild(button);
 			const cancelButton = document.createElement('button');
             cancelButton.textContent = "Cancel";
-            cancelButton.style = "position:absolute; left: 30px; bottom: 30px; font-size:50px; background-color:red; color: white; border-radius: 5px; padding: 30px;"
+            cancelButton.style = "position:absolute; left: 30px; bottom: 30px; font-size:50px; background-color:red; color: white; border-radius: 5px; padding: 30px;";
 			cancelButton.onclick = () => {
 				document.body.removeChild(cancelButton);
 				document.body.removeChild(button);
@@ -44,14 +52,23 @@ let interceptor = function (method, url, async) {
 				statements.forEach((statement) => {
                     console.log(statement);
                     let dataUrl = "https://connect.secure.wellsfargo.com" + statement.url;
-                    let el1 = document.createElement('a');
-                    el1.setAttribute('href', dataUrl);
-                    el1.setAttribute('download', statement.documentDisplayName);
-                    el1.setAttribute('target', '_blank');
-                    document.body.appendChild(el1);
-                    setTimeout(() => {
-                        el1.click();
-                        el1.parentNode.removeChild(el1);
+                    const iso = toISODate(statement.documentDisplayName);
+                    setTimeout(async () => {
+                      // Download using fetch→blob to set a custom filename
+                      const res = await fetch(dataUrl, { credentials: 'include' });
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      let el1 = document.createElement('a');
+                      el1.setAttribute('href', url);
+                      el1.setAttribute('download', `${iso} WellsFargo.pdf`);
+                      el1.setAttribute('target', '_blank');
+                      document.body.appendChild(el1);
+                      el1.click();
+                      el1.parentNode.removeChild(el1);
+
+                      // Clean up temporary blob URL after 30s
+                      setTimeout(() => URL.revokeObjectURL(url), 30000);
+
                     }, waitTime);
                     waitTime += 700;
                 });
@@ -66,7 +83,7 @@ let interceptor = function (method, url, async) {
 
 	}
     return oldXHROpen.apply(this, arguments);
-}
+};
 if (window.XMLHttpRequest.prototype.open !== interceptor) {
 	window.XMLHttpRequest.prototype.open = interceptor;
 } else {
