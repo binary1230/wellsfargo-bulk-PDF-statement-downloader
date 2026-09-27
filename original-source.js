@@ -10,15 +10,32 @@ if (window.location.hostname.toLowerCase().indexOf('wellsfargo') === -1) {
 }
 console.log('Wells fargo detected.');
 
+if (window.wfDownloader) {
+    console.warn('Already have interceptor');
+    return;
+}
+
+const ACCOUNT_DROPDOWN_ID = 'dropdown-select.account.text';
 const DOWNLOAD_DELAY_MS = 1000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Exposed for debugging from the DevTools console, e.g. `wfDownloader.failures`.
+// Statements from the most recent listing response (the account and period on screen).
+let latest = [];
+let responseCount = 0;
+let cancelled = false;
+
+// Exposed for debugging from the DevTools console, e.g. `wfDownloader.latest`.
 window.wfDownloader = {
+    get latest() { return latest; },
     rawResponses: [],
     failures: [],
 };
+
+function currentAccountLabel() {
+    const combobox = document.getElementById(ACCOUNT_DROPDOWN_ID);
+    return combobox ? combobox.innerText.replace(/^Select account\s*/, '').trim() : '';
+}
 
 // "Unit 2 ...9932" + "Statement 08/31/26" -> "Unit 2 9932 - 2026-08-31.pdf"
 function toFileName(accountLabel, displayName) {
@@ -34,6 +51,73 @@ function toFileName(accountLabel, displayName) {
     const name = account ? account + ' - ' + rest : rest;
     return name.replace(/[\/\\:*?"<>|]/g, '-') + '.pdf';
 }
+
+// ---- UI ----
+
+const panel = document.createElement('div');
+panel.style = "position:fixed; right:30px; bottom:30px; z-index:99999; display:flex; flex-direction:column; align-items:flex-end; gap:10px; font-family:sans-serif;";
+const statusLine = document.createElement('div');
+statusLine.style = "background-color:white; color:black; border:1px solid #ccc; border-radius:5px; padding:8px 12px; font-size:16px; max-width:500px;";
+statusLine.textContent = 'Ready. Expand "Statements and Disclosures", then choose an option.';
+panel.appendChild(statusLine);
+
+function makeButton(text, color) {
+    const button = document.createElement('button');
+    button.textContent = text;
+    button.style = "font-size:22px; background-color:" + color + "; color:white; border:none; border-radius:5px; padding:12px 22px; cursor:pointer;";
+    panel.appendChild(button);
+    return button;
+}
+
+const periodButton = makeButton('Download selected period', 'green');
+const cancelButton = makeButton('Cancel', 'red');
+const actionButtons = [periodButton];
+
+// Show the panel straight away, rather than waiting for the next statement
+// list to load, so clicking the bookmark after the page has loaded still works.
+document.body.appendChild(panel);
+
+function setStatus(text) {
+    console.log('[WF downloader] ' + text);
+    statusLine.textContent = text;
+}
+
+function setBusy(busy) {
+    actionButtons.forEach((button) => {
+        button.disabled = busy;
+        button.style.opacity = busy ? 0.5 : 1;
+    });
+}
+
+cancelButton.onclick = () => {
+    cancelled = true;
+    setBusy(false);
+    panel.remove();
+};
+
+periodButton.onclick = () => {
+    if (!responseCount) {
+        // The statements already on screen loaded before the script was running.
+        setStatus('Change the account or time period first, so the script can see the statement list.');
+        return;
+    }
+    run(() => downloadStatements(latest));
+};
+
+async function run(task) {
+    cancelled = false;
+    setBusy(true);
+    try {
+        await task();
+    } catch (e) {
+        console.error(e);
+        setStatus('Error: ' + e.message);
+        alert('Wells Fargo Downloader error: ' + e.message);
+    }
+    setBusy(false);
+}
+
+// ---- Downloading ----
 
 // Fetching the PDF ourselves and saving it from a blob url is what lets us choose
 // the file name; a plain link would get Wells Fargo's name from the server.
@@ -60,8 +144,11 @@ async function downloadOne(statement) {
 async function downloadStatements(statements) {
     const failures = [];
     for (let i = 0; i < statements.length; i++) {
+        if (cancelled) {
+            return;
+        }
         const statement = statements[i];
-        console.log('[WF downloader] Downloading ' + (i + 1) + ' of ' + statements.length + ': ' + statement.fileName);
+        setStatus('Downloading ' + (i + 1) + ' of ' + statements.length + ': ' + statement.fileName);
         try {
             await downloadOne(statement);
         } catch (e) {
@@ -73,56 +160,52 @@ async function downloadStatements(statements) {
     window.wfDownloader.failures = failures;
     if (failures.length) {
         console.table(failures);
+        setStatus('Done. ' + (statements.length - failures.length) + ' downloaded, ' + failures.length + ' failed (see console / wfDownloader.failures).');
+    } else {
+        setStatus('Done. Downloaded ' + statements.length + ' statements.');
     }
-    console.log('[WF downloader] Done. ' + (statements.length - failures.length) + ' downloaded, ' + failures.length + ' failed.');
+}
+
+// ---- Intercepting the statement listing ----
+
+function onStatementList(responseText) {
+    let str = responseText;
+    str = str.substr(24);
+    str = str.substr(0, str.length - 24);
+    str = str.replace(/\\"/g, '"');
+    const parsed = JSON.parse(str);
+    const info = parsed.statementsDisclosuresInfo;
+    const statements = info.statements;
+    window.wfDownloader.rawResponses.push(parsed);
+    // The account dropdown's text still shows the previous account while this
+    // response is being handled, so prefer the account the response marks selected.
+    const selectedAccount = (info.accountList || []).find((account) => account.selected);
+    const accountLabel = selectedAccount ? selectedAccount.accountDisplayName : currentAccountLabel();
+    latest = statements.map((statement) => ({
+        url: "https://connect.secure.wellsfargo.com" + statement.url,
+        fileName: toFileName(accountLabel, statement.documentDisplayName),
+    }));
+    responseCount++;
+    console.log('[WF downloader] Listing for ' + accountLabel + ': ' + latest.length + ' statements', latest);
+    periodButton.textContent = 'Download selected period (' + latest.length + ')';
+    if (!panel.isConnected) {
+        document.body.appendChild(panel);
+    }
 }
 
 window.oldXHROpen = window.XMLHttpRequest.prototype.open;
 
-let interceptor = function (method, url, async) {
-    console.log('Intercepted request: ', {url});
-	if (url.indexOf('/edocs/documents/statement/list') !== -1) {
-		console.log('Listing page request found...');
-		this.addEventListener('load', function () {
-            let str = this.responseText;
-            str = str.substr(24);
-            str = str.substr(0, str.length - 24);
-            str = str.replace(/\\"/g, '"');
-            let parsed = JSON.parse(str);
-            const info = parsed.statementsDisclosuresInfo;
-            window.wfDownloader.rawResponses.push(parsed);
-            // Statement names repeat across accounts, so file names include the account.
-            const selectedAccount = (info.accountList || []).find((account) => account.selected);
-            const accountLabel = selectedAccount ? selectedAccount.accountDisplayName : '';
-            let statements = info.statements.map((statement) => ({
-                url: "https://connect.secure.wellsfargo.com" + statement.url,
-                fileName: toFileName(accountLabel, statement.documentDisplayName),
-            }));
-			const button = document.createElement('button');
-            button.textContent = "Download Statements";
-            button.style = "position:absolute; right: 30px; bottom: 30px; font-size:50px; background-color:green; color: white; border-radius: 5px; padding: 30px;"
-            document.body.appendChild(button);
-			const cancelButton = document.createElement('button');
-            cancelButton.textContent = "Cancel";
-            cancelButton.style = "position:absolute; left: 30px; bottom: 30px; font-size:50px; background-color:red; color: white; border-radius: 5px; padding: 30px;"
-			cancelButton.onclick = () => {
-				document.body.removeChild(cancelButton);
-				document.body.removeChild(button);
-			};
-            document.body.appendChild(cancelButton);
-            button.onclick = () => {
-				document.body.removeChild(button);
-				document.body.removeChild(cancelButton);
-				downloadStatements(statements);
-            };
+window.XMLHttpRequest.prototype.open = function (method, url, async) {
+    if (url.indexOf('/edocs/documents/statement/list') !== -1) {
+        console.log('Listing page request found...');
+        this.addEventListener('load', function () {
+            try {
+                onStatementList(this.responseText);
+            } catch (e) {
+                console.error('[WF downloader] Could not parse statement list', e, this.responseText);
+            }
         });
-
-	}
-    return oldXHROpen.apply(this, arguments);
-}
-if (window.XMLHttpRequest.prototype.open !== interceptor) {
-	window.XMLHttpRequest.prototype.open = interceptor;
-} else {
-	console.warn('Already have interceptor');
-}
+    }
+    return window.oldXHROpen.apply(this, arguments);
+};
 })();})();
