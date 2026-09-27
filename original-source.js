@@ -16,21 +16,31 @@ if (window.wfDownloader) {
 }
 
 const ACCOUNT_DROPDOWN_ID = 'dropdown-select.account.text';
+const PERIOD_DROPDOWN_ID = 'dropdown-time.period';
+const RECENT_PERIOD_LABEL = 'Recent statements';
 const DOWNLOAD_DELAY_MS = 1000;
+const RESPONSE_TIMEOUT_MS = 10000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // Statements from the most recent listing response (the account and period on screen).
 let latest = [];
 let responseCount = 0;
+// While a scan is running, every listing response is added here, keyed by url.
+let scanResults = null;
 let cancelled = false;
 
 // Exposed for debugging from the DevTools console, e.g. `wfDownloader.latest`.
 window.wfDownloader = {
     get latest() { return latest; },
+    get scanResults() { return scanResults; },
     rawResponses: [],
     failures: [],
 };
+
+function optionLabel(option) {
+    return option.innerText.replace(/\s*Selected$/, '').trim();
+}
 
 function currentAccountLabel() {
     const combobox = document.getElementById(ACCOUNT_DROPDOWN_ID);
@@ -70,8 +80,9 @@ function makeButton(text, color) {
 }
 
 const periodButton = makeButton('Download selected period', 'green');
+const accountButton = makeButton('Download this account (all years)', 'teal');
 const cancelButton = makeButton('Cancel', 'red');
-const actionButtons = [periodButton];
+const actionButtons = [periodButton, accountButton];
 
 // Show the panel straight away, rather than waiting for the next statement
 // list to load, so clicking the bookmark after the page has loaded still works.
@@ -91,6 +102,7 @@ function setBusy(busy) {
 
 cancelButton.onclick = () => {
     cancelled = true;
+    scanResults = null;
     setBusy(false);
     panel.remove();
 };
@@ -104,6 +116,12 @@ periodButton.onclick = () => {
     run(() => downloadStatements(latest));
 };
 
+accountButton.onclick = () => run(async () => {
+    scanResults = new Map();
+    await scanPeriods('current account');
+    await downloadScanResults();
+});
+
 async function run(task) {
     cancelled = false;
     setBusy(true);
@@ -114,6 +132,7 @@ async function run(task) {
         setStatus('Error: ' + e.message);
         alert('Wells Fargo Downloader error: ' + e.message);
     }
+    scanResults = null;
     setBusy(false);
 }
 
@@ -166,6 +185,86 @@ async function downloadStatements(statements) {
     }
 }
 
+async function downloadScanResults() {
+    if (!cancelled) {
+        await downloadStatements(Array.from(scanResults.values()));
+    }
+}
+
+// ---- Iterating accounts / time periods ----
+
+// The dropdowns only render their options while open, and re-render after
+// every selection, so options are looked up fresh each time by index.
+async function openDropdown(id) {
+    const combobox = document.getElementById(id);
+    if (!combobox) {
+        throw new Error('Dropdown "' + id + '" not found. Expand "Statements and Disclosures" first.');
+    }
+    combobox.click();
+    for (let tries = 0; tries < 20; tries++) {
+        await sleep(250);
+        // A click right after a previous selection is sometimes ignored; try again.
+        if (tries % 4 === 3 && !combobox.getAttribute('aria-controls')) {
+            combobox.click();
+        }
+        const listboxId = combobox.getAttribute('aria-controls') || combobox.getAttribute('aria-owns');
+        const listbox = (listboxId && document.getElementById(listboxId)) || document.querySelector('[role="listbox"]');
+        const options = listbox ? Array.from(listbox.querySelectorAll('[role="option"]')) : [];
+        if (options.length) {
+            return options;
+        }
+    }
+    throw new Error('No options appeared for dropdown "' + id + '".');
+}
+
+async function waitForResponse(countBefore) {
+    const start = Date.now();
+    while (responseCount === countBefore) {
+        if (Date.now() - start > RESPONSE_TIMEOUT_MS) {
+            console.warn('[WF downloader] Timed out waiting for statement list.');
+            return;
+        }
+        await sleep(200);
+    }
+}
+
+async function selectOption(id, index) {
+    const options = await openDropdown(id);
+    const option = options[index];
+    const label = optionLabel(option);
+    const alreadySelected = option.getAttribute('aria-selected') === 'true' || /Selected$/.test(option.innerText.trim());
+    const countBefore = responseCount;
+    option.click();
+    if (alreadySelected) {
+        // Re-selecting the current option doesn't trigger a new listing request,
+        // so what's on screen already is this option's listing.
+        if (scanResults) {
+            latest.forEach((statement) => scanResults.set(statement.url, statement));
+        }
+    } else {
+        await waitForResponse(countBefore);
+    }
+    await sleep(500);
+    return { label, count: options.length };
+}
+
+// "Recent statements" only repeats statements from the years, so it's skipped.
+async function scanPeriods(accountDescription) {
+    let periodCount = 1;
+    for (let p = 0; p < periodCount && !cancelled; p++) {
+        const options = await openDropdown(PERIOD_DROPDOWN_ID);
+        periodCount = options.length;
+        if (optionLabel(options[p]) === RECENT_PERIOD_LABEL) {
+            // Close the dropdown again without changing the selection.
+            document.getElementById(PERIOD_DROPDOWN_ID).click();
+            await sleep(250);
+            continue;
+        }
+        const period = await selectOption(PERIOD_DROPDOWN_ID, p);
+        setStatus('Scanning ' + accountDescription + ', ' + period.label + ': ' + scanResults.size + ' statements found');
+    }
+}
+
 // ---- Intercepting the statement listing ----
 
 function onStatementList(responseText) {
@@ -185,6 +284,9 @@ function onStatementList(responseText) {
         url: "https://connect.secure.wellsfargo.com" + statement.url,
         fileName: toFileName(accountLabel, statement.documentDisplayName),
     }));
+    if (scanResults) {
+        latest.forEach((statement) => scanResults.set(statement.url, statement));
+    }
     responseCount++;
     console.log('[WF downloader] Listing for ' + accountLabel + ': ' + latest.length + ' statements', latest);
     periodButton.textContent = 'Download selected period (' + latest.length + ')';
