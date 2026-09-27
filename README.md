@@ -25,6 +25,16 @@ javascript:(function()%7B(function()%20%7B%0A%0Aif%20(window.location.hostname.t
 5. Click the new 'Wells Fargo Downloader' bookmark you just created
 6. Visit the `Statements and Documents` page and as soon as you expand `Statements and Disclosures` menu you should see a button to Download all the PDF statements for selected time period
 
+# Development
+
+The bookmarklet in this README is generated from [original-source.js](original-source.js). After changing the source, run:
+
+```
+node generate-bookmarklet.js
+```
+
+`node generate-bookmarklet.js --check` exits with an error if the README is out of date.
+
 ---------
 
 # Credits
