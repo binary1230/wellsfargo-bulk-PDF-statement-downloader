@@ -81,8 +81,9 @@ function makeButton(text, color) {
 
 const periodButton = makeButton('Download selected period', 'green');
 const accountButton = makeButton('Download this account (all years)', 'teal');
+const allButton = makeButton('Download ALL accounts (all years)', 'darkblue');
 const cancelButton = makeButton('Cancel', 'red');
-const actionButtons = [periodButton, accountButton];
+const actionButtons = [periodButton, accountButton, allButton];
 
 // Show the panel straight away, rather than waiting for the next statement
 // list to load, so clicking the bookmark after the page has loaded still works.
@@ -119,6 +120,12 @@ periodButton.onclick = () => {
 accountButton.onclick = () => run(async () => {
     scanResults = new Map();
     await scanPeriods('current account');
+    await downloadScanResults();
+});
+
+allButton.onclick = () => run(async () => {
+    scanResults = new Map();
+    await scanAllAccounts();
     await downloadScanResults();
 });
 
@@ -262,6 +269,15 @@ async function scanPeriods(accountDescription) {
         }
         const period = await selectOption(PERIOD_DROPDOWN_ID, p);
         setStatus('Scanning ' + accountDescription + ', ' + period.label + ': ' + scanResults.size + ' statements found');
+    }
+}
+
+async function scanAllAccounts() {
+    let accountCount = 1;
+    for (let a = 0; a < accountCount && !cancelled; a++) {
+        const account = await selectOption(ACCOUNT_DROPDOWN_ID, a);
+        accountCount = account.count;
+        await scanPeriods('account ' + (a + 1) + '/' + accountCount + ' (' + account.label + ')');
     }
 }
 
