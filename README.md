@@ -22,8 +22,18 @@ javascript:(function()%7B(function()%20%7B%0A%0Aif%20(window.location.hostname.t
 ---------
 
 4. Login to your wellsfargo.com account
-5. Click the new 'Wells Fargo Downloader' bookmark you just created
-6. Visit the `Statements and Documents` page and as soon as you expand `Statements and Disclosures` menu you should see a button to Download all the PDF statements for selected time period
+5. Go to the `Statements and Documents` page using the site's menus and expand the `Statements and Disclosures` menu. (Opening a saved link to the statements page signs you out.)
+6. Click the new 'Wells Fargo Downloader' bookmark you just created. A panel appears in the bottom-right corner with:
+- **Download selected period**: the statements for the account and time period currently shown. The script only sees statement lists that load after you click the bookmark, so change the account or time period once before using this.
+- **Download this account (all years)**: goes through every year in the time period dropdown for the current account
+- **Download ALL accounts (all years)**: does the same for every account in the account dropdown
+- **Cancel**: stops a scan or download in progress
+
+Duplicates are skipped, and files are named by account and statement date, e.g. `CHECKING 1234 - 2026-08-31.pdf`. Downloads run at roughly one file per second, so a few hundred statements take 10-20 minutes.
+
+7. Chrome will ask whether to allow the site to download multiple files the first time. Click `Allow`. Leave the tab in the foreground while the scan runs.
+
+If something goes wrong, open the Chrome DevTools console: the script's messages start with `[WF downloader]`, and `wfDownloader.failures` lists any statements that failed to download.
 
 # Development
 
